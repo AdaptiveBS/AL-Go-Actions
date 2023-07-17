@@ -17,7 +17,7 @@ $RepoSettingsFile = Join-Path '.github' 'AL-Go-Settings.json'
 $defaultCICDPushBranches = @( 'main', 'release/*', 'feature/*' )
 $defaultCICDPullRequestBranches = @( 'main' )
 $runningLocal = $local.IsPresent
-$defaultBcContainerHelperVersion = "latest" # Must be double quotes. Will be replaced by BcContainerHelperVersion if necessary in the deploy step
+$defaultBcContainerHelperVersion = "" # Must be double quotes. Will be replaced by BcContainerHelperVersion if necessary in the deploy step
 $microsoftTelemetryConnectionString = "InstrumentationKey=84bd9223-67d4-4378-8590-9e4a46023be2;IngestionEndpoint=https://westeurope-1.in.applicationinsights.azure.com/"
 
 $runAlPipelineOverrides = @(
@@ -265,7 +265,7 @@ function DownloadAndImportBcContainerHelper {
     elseif ($bcContainerHelperVersion -eq "private") {
         # Using a private BcContainerHelper version grabs a fork of BcContainerHelper with the same owner as the AL-Go actions
         # The ActionsRepo below will be modified to point to actual running actions repo by the deploy mechanism, please do not change
-        $ActionsRepo = "microsoft/AL-Go-Actions@v3.1"
+        $ActionsRepo = "AdaptiveBS/AL-Go-Actions@main"
         $owner = $actionsRepo.Split('/')[0]
         $bcContainerHelperVersion = "https://github.com/$owner/navcontainerhelper/archive/master.zip"
     }
@@ -468,6 +468,7 @@ function ReadSettings {
         "keyVaultCertificateUrlSecretName"       = ""
         "keyVaultCertificatePasswordSecretName"  = ""
         "keyVaultClientIdSecretName"             = ""
+        "keyVaultCodesignCertificateName"        = ""
         "codeSignCertificateUrlSecretName"       = "codeSignCertificateUrl"
         "codeSignCertificatePasswordSecretName"  = "codeSignCertificatePassword"
         "additionalCountries"                    = @()
@@ -1132,7 +1133,12 @@ function CommitFromNewFolder {
     invoke-git commit --allow-empty -m "'$commitMessage'"
     if ($branch) {
         invoke-git push -u $serverUrl $branch
-        invoke-gh pr create --fill --head $branch --repo $env:GITHUB_REPOSITORY --base $ENV:GITHUB_REF_NAME
+        try {
+            invoke-gh pr create --fill --head $branch --repo $env:GITHUB_REPOSITORY --base $ENV:GITHUB_REF_NAME
+        }
+        catch {
+            OutputError("GitHub actions are not allowed to create Pull Requests (see GitHub Organization or Repository Actions Settings). You can create the PR manually by navigating to $($env:GITHUB_SERVER_URL)/$($env:GITHUB_REPOSITORY)/tree/$branch.")
+        }
     }
     else {
         invoke-git push $serverUrl
@@ -2025,4 +2031,36 @@ function Determine-ArtifactUrl {
         $artifactUrl = $artifactUrl.Replace($artifactUrl.Split('/')[4],$atArtifactUrl.Split('/')[4])
     }
     return $artifactUrl
+}
+
+function Retry-Command {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ScriptBlock]$Command,
+        [Parameter(Mandatory = $false)]
+        [int]$MaxRetries = 3,
+        [Parameter(Mandatory = $false)]
+        [int]$RetryDelaySeconds = 5
+    )
+
+    $retryCount = 0
+    while ($retryCount -lt $MaxRetries) {
+        try {
+            Invoke-Command $Command
+            if ($LASTEXITCODE -ne 0) {
+                throw "Command failed with exit code $LASTEXITCODE"
+            }
+            break
+        }
+        catch {
+            $retryCount++
+            if ($retryCount -eq $MaxRetries) {
+                throw $_
+            }
+            else {
+                Write-Host "Retrying after $RetryDelaySeconds seconds..."
+                Start-Sleep -Seconds $RetryDelaySeconds
+            }
+        }
+    }
 }
