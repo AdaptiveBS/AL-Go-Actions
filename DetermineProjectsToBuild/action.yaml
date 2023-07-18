@@ -33,14 +33,8 @@ runs:
         _parentTelemetryScopeJson: ${{ inputs.parentTelemetryScopeJson }}
         _maxBuildDepth: ${{ inputs.maxBuildDepth }}
       run: |
-        try { 
           $changedFiles = ${{ github.action_path }}/GetModifiedFiles.ps1 -token ${{ github.token }}
           ${{ github.action_path }}/DetermineProjectsToBuild.Action.ps1 -baseFolder ${{ github.workspace }} -modifiedFiles $changedFiles -maxBuildDepth $env:_maxBuildDepth -parentTelemetryScopeJson $env:_parentTelemetryScopeJson
-        } catch {
-        $_.Exception.Message
-        Write-Host $_.Exception.Message
-        Write-Host "::Error::Unexpected error when running action ($_.Exception.Message)";
-        exit 1 }
 branding:
   icon: terminal
   color: blue
